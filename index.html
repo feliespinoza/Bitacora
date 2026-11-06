@@ -24,8 +24,8 @@ h2{font-size:1.15rem;margin:0}
 .mute{color:var(--mute)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;margin:12px 0}
 label{display:block;font-weight:700;margin:14px 0 6px}
-input[type=text]{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:11px 12px}
-input[type=text]:focus,button:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+input{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:11px 12px}
+input:focus,button:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
 button{font:inherit;font-weight:700;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);padding:11px 16px;cursor:pointer}
 button.ghost{background:transparent;color:var(--accent)}
 button.x{background:transparent;border-color:transparent;color:var(--danger);padding:6px 10px}
@@ -48,10 +48,27 @@ button.x{background:transparent;border-color:transparent;color:var(--danger);pad
 .add2{display:grid;grid-template-columns:5.5em 1fr;gap:8px;margin-top:10px}
 .add2 button{grid-column:1/-1}
 [hidden]{display:none!important}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.cal .dow{font-size:.8rem;color:var(--mute);font-weight:700}
+.cal button{position:relative;padding:10px 0;background:var(--surface);color:var(--ink);border-color:var(--line);font-weight:400}
+.cal button.has{font-weight:700}
+.cal button.has::after{content:"";position:absolute;left:50%;bottom:3px;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:var(--accent)}
+.cal button.sel{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.cal button.sel.has::after{background:var(--on-accent)}
+.cal button.today{border:2px solid var(--accent)}
+.mh{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px}
+.mh h2{text-transform:capitalize}
+.row2{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line);padding:8px 6px}
+.row2.bad{background:#fde2e2;color:#7a1515;border-radius:6px}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .row2.bad{background:#4a1f1f;color:#ffb4b4}}
+:root[data-theme="dark"] .row2.bad{background:#4a1f1f;color:#ffb4b4}
+.row2 .btns{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
 </style>
 </head>
 <body>
 <main>
+<nav class="tabs" id="nav"><button id="n1" aria-selected="true">Turno</button><button id="n2" aria-selected="false">Calendario</button></nav>
+<div id="v1">
 <section id="start">
   <h1>Bitácora de turno</h1>
   <p class="mute" id="today1"></p>
@@ -76,10 +93,26 @@ button.x{background:transparent;border-color:transparent;color:var(--danger);pad
   <div class="tabs" role="tablist">
     <button role="tab" id="t1" aria-selected="true">Bitácora por hora</button>
     <button role="tab" id="t2" aria-selected="false">Cierre de turno</button>
+    <button role="tab" id="t3" aria-selected="false">Estacionamiento</button>
+    <button role="tab" id="t4" aria-selected="false">Gimnasio</button>
   </div>
   <p id="msg" class="mute" role="status"></p>
   <div id="log"></div>
   <div id="close" class="cols" hidden></div>
+  <div id="park" hidden></div>
+  <div id="gym" hidden></div>
+</section>
+</div>
+<section id="v2" hidden>
+  <h1>Calendario</h1>
+  <div class="card">
+    <div class="mh"><button class="ghost" id="pm" aria-label="Mes anterior">&lsaquo;</button><h2 id="mt"></h2><button class="ghost" id="nm" aria-label="Mes siguiente">&rsaquo;</button></div>
+    <div class="cal" id="grid"></div>
+    <p class="mute" style="margin:10px 0 0">El punto marca los días con registros.</p>
+  </div>
+  <div class="card"><button class="ghost" id="dlMonth">Descargar Excel del mes</button><p class="mute" id="monthMsg" role="status"></p></div>
+  <div id="day"></div>
+</section>
 </main>
 
 <script>
@@ -101,7 +134,7 @@ $("shiftBtns").onclick=function(e){var b=e.target.closest("button");if(!b)return
 $("go").onclick=function(){
   var n=$("name").value.trim();
   if(!pick||!n){$("err").hidden=false;return}
-  S={shift:pick,name:n,date:dateStr(),iso:new Date().toLocaleDateString("sv-SE"),log:{},sala:[],cons:[]};save();show();
+  S={shift:pick,name:n,date:dateStr(),iso:new Date().toLocaleDateString("sv-SE"),log:{},sala:[],cons:[],park:[],gym:[]};save();show();
 };
 function show(){
   $("start").hidden=!!S;$("app").hidden=!S;
@@ -109,7 +142,7 @@ function show(){
   var s=SHIFTS[S.shift];
   $("title").textContent="Turno de "+s.label.toLowerCase()+" · "+s.from+" a "+s.to+" h";
   $("meta").textContent=S.date+" — "+S.name;
-  drawLog();drawClose();
+  S.park=S.park||[];S.gym=S.gym||[];drawLog();drawClose();drawPark();drawGym();
 }
 function drawLog(){
   var nowH=new Date().getHours();
@@ -150,17 +183,17 @@ $("close").onclick=function(e){
 };
 $("close").onkeydown=function(e){if(e.key==="Enter"){var k=e.target.dataset.d||e.target.dataset.o;if(k)addC(k)}};
 function tab(n){
-  $("log").hidden=n!==1;$("close").hidden=n!==2;
-  $("t1").setAttribute("aria-selected",n===1);$("t2").setAttribute("aria-selected",n===2);
+  ["log","close","park","gym"].forEach(function(id,i){$(id).hidden=n!==i+1;$("t"+(i+1)).setAttribute("aria-selected",n===i+1)});
 }
 $("t1").onclick=function(){tab(1)};$("t2").onclick=function(){tab(2)};
+$("t3").onclick=function(){tab(3);drawPark()};$("t4").onclick=function(){tab(4);drawGym()};
 $("end").onclick=function(){$("confirm").hidden=false};
 $("no").onclick=function(){$("confirm").hidden=true};
 $("yes").onclick=function(){archive();S=null;pick=null;try{localStorage.removeItem(KEY)}catch(e){}$("confirm").hidden=true;$("name").value="";$("err").hidden=true;tab(1);show()};
 var HKEY="bitacora-historial-v1";
 function loadH(){try{var v=localStorage.getItem(HKEY);return v?JSON.parse(v):[]}catch(e){return[]}}
 function archive(){
-  var h=loadH();h.push({shift:S.shift,name:S.name,date:S.date,iso:S.iso||"",log:S.log,sala:S.sala,cons:S.cons,savedAt:Date.now()});
+  var h=loadH();h.push({shift:S.shift,name:S.name,date:S.date,iso:S.iso||"",log:S.log,sala:S.sala,cons:S.cons,park:S.park||[],gym:S.gym||[],savedAt:Date.now()});
   try{localStorage.setItem(HKEY,JSON.stringify(h));$("histMsg").textContent="Turno guardado en el historial."}catch(e){$("histMsg").textContent="No se pudo guardar el historial en este dispositivo."}
 }
 function drawHist(){
@@ -175,10 +208,14 @@ function buildXlsx(recs){
     r.sala.forEach(function(x){B.push([r.date,lbl,r.name,"Sala multiuso",x.d,x.o])});
     r.cons.forEach(function(x){B.push([r.date,lbl,r.name,"Conserjería",x.d,x.o])});
   });
-  var wb=XLSX.utils.book_new(),w1=XLSX.utils.aoa_to_sheet(A),w2=XLSX.utils.aoa_to_sheet(B);
+  var C=[["Fecha","Turno","Responsable","Patente","Entrada","Salida","Minutos","Exceso sobre 4 h (min)"]],D=[["Fecha","Turno","Responsable","Persona","Entrada","Minutos (tope 60)"]];
+  recs.forEach(function(r){var sh=SHIFTS[r.shift],lbl=sh.label+" "+sh.from+"-"+sh.to+" h";
+    (r.park||[]).forEach(function(x){var m=x.out?durMin(x.in,x.out):"";C.push([r.date,lbl,r.name,x.p,x.in,x.out||"Sin salida",m,m!==""&&m>240?m-240:0])});
+    (r.gym||[]).forEach(function(x){D.push([r.date,lbl,r.name,x.who,x.in,x.m])})});
+  var wb=XLSX.utils.book_new(),w1=XLSX.utils.aoa_to_sheet(A),w2=XLSX.utils.aoa_to_sheet(B),w3=XLSX.utils.aoa_to_sheet(C),w4=XLSX.utils.aoa_to_sheet(D);
   w1["!cols"]=[{wch:30},{wch:18},{wch:18},{wch:8},{wch:60}];
   w2["!cols"]=[{wch:30},{wch:18},{wch:18},{wch:16},{wch:8},{wch:40}];
-  XLSX.utils.book_append_sheet(wb,w1,"Bitácora");XLSX.utils.book_append_sheet(wb,w2,"Cierre de turno");
+  XLSX.utils.book_append_sheet(wb,w1,"Bitácora");XLSX.utils.book_append_sheet(wb,w2,"Cierre de turno");XLSX.utils.book_append_sheet(wb,w3,"Estacionamiento");XLSX.utils.book_append_sheet(wb,w4,"Gimnasio");
   return XLSX.write(wb,{bookType:"xlsx",type:"array"});
 }
 async function exportX(recs,name,out){
@@ -194,6 +231,105 @@ async function exportX(recs,name,out){
 }
 $("dl").onclick=function(){exportX([S],"bitacora-"+(S.iso||"turno")+".xlsx",$("msg"))};
 $("dlAll").onclick=function(){exportX(loadH(),"bitacora-historial.xlsx",$("histMsg"))};
+var V=1,cm=new Date(),selIso=null;cm.setDate(1);
+function todayIso(){return new Date().toLocaleDateString("sv-SE")}
+function isoOf(r){return r.iso||new Date(r.savedAt||Date.now()).toLocaleDateString("sv-SE")}
+function allRecs(){var h=loadH().map(function(r){return Object.assign({},r,{_iso:isoOf(r)})});
+  if(S)h.push(Object.assign({},S,{_iso:isoOf(S),live:true}));return h}
+function view(n){V=n;$("v1").hidden=n!==1;$("v2").hidden=n!==2;
+  $("n1").setAttribute("aria-selected",n===1);$("n2").setAttribute("aria-selected",n===2);
+  if(n===2){if(!selIso)selIso=todayIso();drawCal()}}
+$("n1").onclick=function(){view(1)};$("n2").onclick=function(){view(2)};
+function drawCal(){
+  var y=cm.getFullYear(),m=cm.getMonth(),recs=allRecs(),has={};
+  recs.forEach(function(r){has[r._iso]=1});
+  $("mt").textContent=cm.toLocaleDateString("es-CL",{month:"long",year:"numeric"});
+  var first=(new Date(y,m,1).getDay()+6)%7,dim=new Date(y,m+1,0).getDate(),td=todayIso();
+  var h=["L","M","M","J","V","S","D"].map(function(d){return '<div class="dow">'+d+'</div>'}).join("");
+  for(var i=0;i<first;i++)h+='<span></span>';
+  for(var d=1;d<=dim;d++){
+    var iso=y+"-"+(m<9?"0":"")+(m+1)+"-"+(d<10?"0":"")+d;
+    h+='<button data-iso="'+iso+'" class="'+(has[iso]?"has ":"")+(iso===selIso?"sel ":"")+(iso===td?"today":"")+'" aria-label="'+d+(has[iso]?", con registros":"")+'">'+d+'</button>';
+  }
+  $("grid").innerHTML=h;drawDay(recs);
+}
+function drawDay(recs){
+  var rs=recs.filter(function(r){return r._iso===selIso});
+  var dt=new Date(selIso+"T12:00:00").toLocaleDateString("es-CL",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  var h='<h2 style="text-transform:capitalize;margin:16px 0 4px">'+dt+'</h2>';
+  if(!rs.length)h+='<p class="mute">No hay registros este día.</p>';
+  rs.forEach(function(r){
+    var sh=SHIFTS[r.shift],any=false;
+    h+='<div class="card"><h2>Turno de '+sh.label.toLowerCase()+' · '+sh.from+' a '+sh.to+' h'+(r.live?' (en curso)':'')+'</h2><div class="mute">'+esc(r.name)+'</div>';
+    hours(r.shift).forEach(function(x){var L=r.log[x]||[];if(!L.length)return;any=true;
+      h+='<div class="entry" style="display:block"><b>'+pad(x)+'</b>'+L.map(function(t){return '<div>'+esc(t)+'</div>'}).join("")+'</div>'});
+    if(!any)h+='<p class="mute">Sin anotaciones por hora.</p>';
+    [["sala","Sala multiuso"],["cons","Conserjería"]].forEach(function(p){var L=r[p[0]]||[];if(!L.length)return;
+      h+='<div class="entry" style="display:block"><b>'+p[1]+'</b>'+L.map(function(o){return '<div>'+esc(o.d)+' — '+esc(o.o)+'</div>'}).join("")+'</div>'});
+    var PK=r.park||[],GY=r.gym||[];
+    if(PK.length)h+='<div class="entry" style="display:block"><b>Estacionamiento</b>'+PK.map(function(x){var m=x.out?durMin(x.in,x.out):0,ov=m>240;
+      return '<div'+(ov?' style="color:var(--danger)"':'')+'>'+esc(x.p)+' · '+x.in+(x.out?' a '+x.out+' ('+fmtDur(m)+')'+(ov?' — '+fmtDur(m-240)+' sobre las 4 horas':''):' · sin salida')+'</div>'}).join("")+'</div>';
+    if(GY.length)h+='<div class="entry" style="display:block"><b>Gimnasio</b>'+GY.map(function(x){return '<div>'+esc(x.who)+' · '+x.in+' · '+x.m+' min</div>'}).join("")+'</div>';
+    h+='</div>';
+  });
+  $("day").innerHTML=h;
+}
+$("grid").onclick=function(e){var b=e.target.closest("button");if(!b)return;selIso=b.dataset.iso;drawCal()};
+$("pm").onclick=function(){cm.setMonth(cm.getMonth()-1);drawCal()};
+$("nm").onclick=function(){cm.setMonth(cm.getMonth()+1);drawCal()};
+$("dlMonth").onclick=function(){
+  var m=cm.getMonth()+1,p=cm.getFullYear()+"-"+(m<10?"0":"")+m;
+  var rs=allRecs().filter(function(r){return r._iso.indexOf(p)===0}).sort(function(a,b){return a._iso<b._iso?-1:a._iso>b._iso?1:0});
+  if(!rs.length){$("monthMsg").textContent="No hay registros en este mes.";return}
+  exportX(rs,"bitacora-"+p+".xlsx",$("monthMsg"));
+};
+function pad2(n){return (n<10?"0":"")+n}
+function nowHM(){var d=new Date();return pad2(d.getHours())+":"+pad2(d.getMinutes())}
+function toMin(t){var a=t.split(":");return +a[0]*60+ +a[1]}
+function durMin(i,o){var d=toMin(o)-toMin(i);return d<0?d+1440:d}
+function fmtDur(m){var h=Math.floor(m/60),r=m%60;return h&&r?h+" h "+r+" min":h?h+" h":r+" min"}
+function parkRow(r,i){
+  var open=!r.out,m=durMin(r.in,open?nowHM():r.out),over=m-240;
+  return '<div class="row2'+(over>0?' bad':'')+'"><div><b>'+esc(r.p)+'</b> · '+r.in+(open?' · sin salida':' a '+r.out)
+   +'<br>'+(open?'Lleva ':'Estuvo ')+fmtDur(m)+(over>0?' · <b>'+fmtDur(over)+' sobre las 4 horas</b>':'')+'</div>'
+   +'<div class="btns">'+(open?'<button class="ghost" data-out="'+i+'">Marcar salida</button>':'')+'<button class="x" data-pd="'+i+'" aria-label="Borrar registro">Borrar</button></div></div>';
+}
+function drawPark(){
+  $("park").innerHTML='<div class="card"><h2>Registrar estacionamiento</h2>'
+   +'<label for="pp">Patente</label><input type="text" id="pp" autocapitalize="characters" placeholder="Ej: ABCD12">'
+   +'<label for="pi">Hora de entrada</label><input type="time" id="pi" value="'+nowHM()+'">'
+   +'<label for="po">Hora de salida (déjala vacía si aún está)</label><input type="time" id="po">'
+   +'<p id="perr" style="color:var(--danger)" hidden>Escribe la patente y la hora de entrada.</p>'
+   +'<p><button data-act="add">Agregar</button></p><p class="mute">Pasadas las 4 horas el registro se marca en rojo.</p></div>'
+   +'<div class="card"><h2>Registros del turno</h2>'+(S.park.length?S.park.map(parkRow).join(""):'<p class="mute">Aún no hay registros.</p>')+'</div>';
+}
+$("park").onclick=function(e){
+  var b=e.target.closest("button");if(!b)return;
+  if(b.dataset.act==="add"){
+    var p=$("pp").value.trim().toUpperCase(),i=$("pi").value,o=$("po").value;
+    if(!p||!i){$("perr").hidden=false;return}
+    S.park.push({p:p,in:i,out:o});save();drawPark();
+  }else if(b.dataset.out!==undefined){S.park[+b.dataset.out].out=nowHM();save();drawPark()}
+  else if(b.dataset.pd!==undefined){S.park.splice(+b.dataset.pd,1);save();drawPark()}
+};
+function drawGym(){
+  $("gym").innerHTML='<div class="card"><h2>Registrar gimnasio</h2>'
+   +'<label for="gw">Quién entró (nombre o depto)</label><input type="text" id="gw">'
+   +'<label for="gi">Hora de entrada</label><input type="time" id="gi" value="'+nowHM()+'">'
+   +'<label for="gm">Minutos que estuvo (máximo 60)</label><input type="number" id="gm" min="1" max="60" inputmode="numeric" placeholder="Ej: 45">'
+   +'<p id="gerr" style="color:var(--danger)" hidden>Completa quién entró, la hora y los minutos.</p>'
+   +'<p><button data-act="add">Agregar</button></p></div>'
+   +'<div class="card"><h2>Registros del turno</h2>'+(S.gym.length?S.gym.map(function(r,i){
+     return '<div class="row2"><div><b>'+esc(r.who)+'</b> · '+r.in+'<br>Estuvo '+r.m+' min</div><div class="btns"><button class="x" data-gd="'+i+'" aria-label="Borrar registro">Borrar</button></div></div>'}).join(""):'<p class="mute">Aún no hay registros.</p>')+'</div>';
+}
+$("gym").onclick=function(e){
+  var b=e.target.closest("button");if(!b)return;
+  if(b.dataset.act==="add"){
+    var w=$("gw").value.trim(),i=$("gi").value,m=parseInt($("gm").value,10);
+    if(!w||!i||!(m>0)){$("gerr").hidden=false;return}
+    S.gym.push({who:w,in:i,m:Math.min(m,60)});save();drawGym();
+  }else if(b.dataset.gd!==undefined){S.gym.splice(+b.dataset.gd,1);save();drawGym()}
+};
 S=load();show();
 </script>
 </body>
